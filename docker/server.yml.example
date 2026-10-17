@@ -1,0 +1,28 @@
+# Configuration ntfy pour Docker Swarm, stockée dans un secret Swarm (contient des empreintes et des jetons).
+#   docker secret create ntfy_server_yml server.yml
+# Empreinte d'un mot de passe : docker run --rm -it binwiederhier/ntfy user hash
+# Jeton d'accès (tk_ + 29 caractères) : docker run --rm binwiederhier/ntfy token generate
+base-url: "https://ntfy.exemple.fr"
+listen-http: ":80"
+cache-file: "/var/lib/ntfy/cache.db"
+attachment-cache-dir: "/var/lib/ntfy/attachments"
+auth-file: "/var/lib/ntfy/user.db"
+auth-default-access: "deny-all"
+behind-proxy: true
+enable-login: true
+upstream-base-url: "https://ntfy.sh"
+
+# Comptes : <nom>:<empreinte bcrypt>:<rôle admin|user>
+auth-users:
+  - "admin:$2a$10$REMPLACER_PAR_UNE_EMPREINTE_BCRYPT________________________:admin"
+  - "compteur-esp:$2a$10$REMPLACER_PAR_UNE_EMPREINTE_BCRYPT________________________:user"
+  - "voisin1:$2a$10$REMPLACER_PAR_UNE_EMPREINTE_BCRYPT________________________:user"
+
+# Droits : <nom>:<sujet ou motif>:<rw|ro|wo|deny>
+auth-access:
+  - "compteur-esp:eau-*:wo"                          # l'ESP publie sur tous les sujets eau-*, sans les lire
+  - "voisin1:eau-a81d6c0f4e2b9a7c3d5f1e08:ro"        # le voisin 1 ne lit que SON sujet
+
+# Jetons : <nom>:<jeton>[:<libellé>]
+auth-tokens:
+  - "compteur-esp:tk_REMPLACER_PAR_UN_JETON_29CAR:Récepteur compteur d'eau"

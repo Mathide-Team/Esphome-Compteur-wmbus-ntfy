@@ -1,0 +1,34 @@
+# Serveur ntfy privé : Docker Compose (un seul hôte)
+# Utilisation : cp .env.example .env ; éditer .env ; docker compose up -d
+# Documentation : ../docs/serveur-ntfy-docker.md
+services:
+  ntfy:
+    image: binwiederhier/ntfy:${NTFY_VERSION:-latest}   # fige une version dans .env (ex. v2.x.y)
+    container_name: ntfy
+    command: serve
+    restart: unless-stopped
+    init: true                     # nécessaire avec le healthcheck (évite les processus zombies)
+    environment:
+      TZ: Europe/Paris
+      NTFY_BASE_URL: ${NTFY_BASE_URL}                    # adresse publique, ex. https://ntfy.exemple.fr
+      NTFY_LISTEN_HTTP: ":80"
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db            # messages conservés après redémarrage (since=…)
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db              # active les comptes et les droits
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all                 # instance privée : rien sans compte
+      NTFY_BEHIND_PROXY: "true"                          # derrière un reverse proxy (IP réelle pour les limites)
+      NTFY_ATTACHMENT_CACHE_DIR: /var/lib/ntfy/attachments
+      NTFY_ENABLE_LOGIN: "true"                          # connexion dans l'interface web
+      NTFY_UPSTREAM_BASE_URL: https://ntfy.sh            # notifications instantanées sur iOS
+    volumes:
+      - ntfy-data:/var/lib/ntfy
+    ports:
+      - "127.0.0.1:8080:80"        # écoute locale : le reverse proxy (HTTPS) s'y connecte
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  ntfy-data:

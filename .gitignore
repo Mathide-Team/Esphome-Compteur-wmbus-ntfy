@@ -1,0 +1,7 @@
+secrets.yaml
+*.log
+.esphome/
+ci/
+compteur/
+docker/.env
+docker/server.yml

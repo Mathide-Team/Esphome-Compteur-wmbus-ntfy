@@ -1,0 +1,194 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  ntfy.yaml : notifications ntfy envoyées DIRECTEMENT par l'ESP (sans Home Assistant)
+#  Paquet ESPHome à ajouter à compteur-eau-lora.yaml
+#  (https://github.com/Mathide-Team/Esphome-Compteur-wmbus)
+#
+#  - Toi : une notification à chaque alerte (fuite, débit, conso, absence, compteur muet),
+#    une à la fin de l'alerte, et un bilan quotidien.
+#  - Chaque voisin : un bilan quotidien de SON compteur, sur SON sujet ntfy.
+#    Il le reçoit dans l'appli ntfy (Android, iOS, web) ou dans sa propre domotique
+#    (Home Assistant, Jeedom, Domoticz, openHAB, Node-RED… : tout ce qui sait lire un flux HTTP).
+#
+#  Substitutions attendues (à définir dans compteur-eau-lora.yaml, valeurs dans secrets.yaml) :
+#    ntfy_topic_moi, ntfy_topic_v1 … ntfy_topic_v4   ("" = pas de notification pour ce compteur)
+#  Substitutions facultatives (valeurs par défaut ci-dessous) :
+#    ntfy_server, ntfy_heure_bilan
+# ══════════════════════════════════════════════════════════════════════════════
+
+substitutions:
+  ntfy_server: "https://ntfy.sh"   # ou ton propre serveur ntfy
+  ntfy_heure_bilan: "21"           # heure du bilan quotidien (0 à 23)
+
+# Client HTTPS de l'ESP. Sur ESP32, le paquet de certificats racine d'ESP-IDF est inclus :
+# le certificat de ntfy.sh est vérifié.
+http_request:
+  verify_ssl: true
+  timeout: 10s
+
+# Heure Internet, indépendante de Home Assistant (le bilan part même si HA est arrêté)
+time:
+  - platform: sntp
+    id: ntfy_time
+    timezone: Europe/Paris
+    on_time:
+      - seconds: 0
+        minutes: 0
+        hours: ${ntfy_heure_bilan}
+        then:
+          - script.execute: ntfy_bilans
+
+script:
+  # ── Envoi d'un message ntfy (publication JSON sur la racine du serveur) ──
+  - id: ntfy_envoi
+    mode: queued        # les messages partent l'un après l'autre
+    max_runs: 12
+    parameters:
+      p_topic: string     # sujet ntfy ("" = rien n'est envoyé)
+      p_titre: string
+      p_message: string
+      p_priorite: int     # 1 = min, 2 = low, 3 = default, 4 = high, 5 = urgent
+      p_tags: string      # étiquettes séparées par des virgules (émojis ntfy : droplet, warning…)
+    then:
+      - if:
+          condition:
+            and:
+              - switch.is_on: ntfy_actif
+              - wifi.connected:
+              - lambda: 'return !p_topic.empty();'
+          then:
+            - http_request.post:
+                url: "${ntfy_server}/"
+                request_headers:
+                  Content-Type: application/json
+                  # Serveur ou sujet protégé : décommente la ligne et ajoute ntfy_token aux substitutions
+                  # Authorization: "Bearer ${ntfy_token}"
+                json: |-
+                  root["topic"] = p_topic;
+                  root["title"] = p_titre;
+                  root["message"] = p_message;
+                  root["priority"] = p_priorite;
+                  JsonArray tags = root["tags"].to<JsonArray>();
+                  size_t debut = 0;
+                  while (debut < p_tags.size()) {
+                    size_t fin = p_tags.find(',', debut);
+                    if (fin == std::string::npos) fin = p_tags.size();
+                    if (fin > debut) tags.add(p_tags.substr(debut, fin - debut));
+                    debut = fin + 1;
+                  }
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code == 200)
+                          ESP_LOGI("ntfy", "Envoyé : %s", p_titre.c_str());
+                        else
+                          ESP_LOGW("ntfy", "Refusé par le serveur (HTTP %d) : %s",
+                                   response->status_code, p_titre.c_str());
+                on_error:
+                  then:
+                    - logger.log:
+                        level: WARN
+                        tag: ntfy
+                        format: "Échec de l'envoi (réseau ou serveur injoignable)"
+
+  # ── Bilan quotidien : toi + chaque voisin, chacun sur son sujet ──
+  - id: ntfy_bilans
+    mode: single
+    then:
+      - lambda: |-
+          auto now = id(ntfy_time).now();
+          if (!now.is_valid()) now = id(ha_time).now();
+          // même règle que le reste de la config : conso du jour = index − 1er index du jour
+          auto texte = [&](double total, double debut, int jour) -> std::string {
+            char b[128];
+            if (total <= 0) return "Aucune trame reçue depuis le démarrage du récepteur.";
+            if (now.is_valid() && jour == now.day_of_year && debut > 0)
+              snprintf(b, sizeof(b), "Conso aujourd'hui : %.0f L\nIndex : %.3f m³", (total - debut) * 1000.0, total);
+            else
+              snprintf(b, sizeof(b), "Aucune trame aujourd'hui.\nDernier index : %.3f m³", total);
+            return b;
+          };
+          id(ntfy_envoi).execute("${ntfy_topic_moi}", "Eau : bilan du jour", texte(id(g_total), id(g_day_start), id(g_day)), 2, "droplet");
+          id(ntfy_envoi).execute("${ntfy_topic_v1}", "Eau : bilan du jour (${nom_v1})", texte(id(v1_total), id(v1_day_start), id(v1_day)), 2, "droplet");
+          id(ntfy_envoi).execute("${ntfy_topic_v2}", "Eau : bilan du jour (${nom_v2})", texte(id(v2_total), id(v2_day_start), id(v2_day)), 2, "droplet");
+          id(ntfy_envoi).execute("${ntfy_topic_v3}", "Eau : bilan du jour (${nom_v3})", texte(id(v3_total), id(v3_day_start), id(v3_day)), 2, "droplet");
+          id(ntfy_envoi).execute("${ntfy_topic_v4}", "Eau : bilan du jour (${nom_v4})", texte(id(v4_total), id(v4_day_start), id(v4_day)), 2, "droplet");
+
+switch:
+  - platform: template
+    id: ntfy_actif
+    name: "ntfy - notifications actives"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+button:
+  - platform: template
+    name: "ntfy - message de test"
+    entity_category: diagnostic
+    on_press:
+      - script.execute:
+          id: ntfy_envoi
+          p_topic: "${ntfy_topic_moi}"
+          p_titre: "Compteur d'eau : test"
+          p_message: "Les notifications ntfy du récepteur fonctionnent."
+          p_priorite: 3
+          p_tags: "white_check_mark"
+  - platform: template
+    name: "ntfy - envoyer les bilans maintenant"
+    entity_category: diagnostic
+    on_press:
+      - script.execute: ntfy_bilans
+
+# ── Alertes de TON compteur ──
+# Copies internes des 6 alertes de compteur-eau-lora.yaml : la config principale n'est pas modifiée.
+# Après un redémarrage, une alerte encore active est renvoyée une fois.
+binary_sensor:
+  - platform: template
+    id: ntfy_fuite_confirmee
+    internal: true
+    lambda: 'return id(bs_fuite_confirmee).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "FUITE CONFIRMÉE", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "Consommation continue depuis %d h.", id(g_leak_hours)); return std::string(b);', p_priorite: 5, p_tags: "rotating_light,droplet"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Fin d'alerte : fuite confirmée", p_message: "La consommation s'est arrêtée.", p_priorite: 2, p_tags: "white_check_mark"}
+
+  - platform: template
+    id: ntfy_fuite_nuit
+    internal: true
+    lambda: 'return id(bs_fuite_nuit).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Fuite suspectée (nuit)", p_message: "Consommation à chaque heure de la nuit jusqu'à 5 h.", p_priorite: 4, p_tags: "crescent_moon,droplet"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Fin d'alerte : fuite de nuit", p_message: "Une heure sans consommation a été mesurée.", p_priorite: 2, p_tags: "white_check_mark"}
+
+  - platform: template
+    id: ntfy_debit_anormal
+    internal: true
+    lambda: 'return id(bs_debit_anormal).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Débit anormal", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "Débit estimé : %.0f L/h depuis plus de 10 min.", id(debit_l_h).state); return std::string(b);', p_priorite: 5, p_tags: "warning,droplet"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Fin d'alerte : débit anormal", p_message: "Le débit est revenu sous le seuil.", p_priorite: 2, p_tags: "white_check_mark"}
+
+  - platform: template
+    id: ntfy_conso_jour
+    internal: true
+    lambda: 'return id(bs_conso_jour).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Conso journalière élevée", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "%.0f L consommés aujourd''hui (seuil %.0f L).", id(conso_jour_l).state, id(seuil_jour_l).state); return std::string(b);', p_priorite: 4, p_tags: "calendar,droplet"}
+
+  - platform: template
+    id: ntfy_absence
+    internal: true
+    lambda: 'return id(bs_absence).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Consommation pendant ton absence", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "%.0f L consommés la dernière heure.", id(conso_heure_l).state); return std::string(b);', p_priorite: 5, p_tags: "house,warning"}
+
+  - platform: template
+    id: ntfy_silencieux
+    internal: true
+    lambda: 'return id(bs_silencieux).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Compteur silencieux", p_message: "Aucune trame de ton compteur depuis plus de 6 h.", p_priorite: 3, p_tags: "mute"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Compteur à nouveau reçu", p_message: "Les trames de ton compteur arrivent de nouveau.", p_priorite: 2, p_tags: "white_check_mark"}

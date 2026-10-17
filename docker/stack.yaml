@@ -1,0 +1,50 @@
+# Serveur ntfy privé : Docker Swarm
+#   docker secret create ntfy_server_yml server.yml       (à partir de server.yml.example)
+#   docker node update --label-add ntfy=true <nœud>        (nœud qui porte les données)
+#   docker stack deploy -c stack.yaml ntfy
+# Documentation : ../docs/serveur-ntfy-docker.md
+services:
+  ntfy:
+    image: binwiederhier/ntfy:latest        # fige une version (ex. v2.x.y) en production
+    command: ["serve", "--config", "/run/secrets/ntfy_server_yml"]
+    environment:
+      TZ: Europe/Paris
+    secrets:
+      - ntfy_server_yml
+    volumes:
+      - ntfy-data:/var/lib/ntfy
+    networks:
+      - proxy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      replicas: 1                     # SQLite : UNE seule instance, jamais deux en parallèle
+      placement:
+        constraints:
+          - node.labels.ntfy == true  # le volume local reste sur ce nœud
+      update_config:
+        order: stop-first             # arrête l'ancienne avant de lancer la nouvelle (pas deux écrivains)
+        failure_action: rollback
+      restart_policy:
+        condition: any
+      labels:                         # exemple Traefik v2/v3 (adapter le domaine et le certresolver)
+        - traefik.enable=true
+        - traefik.http.routers.ntfy.rule=Host(`ntfy.exemple.fr`)
+        - traefik.http.routers.ntfy.entrypoints=websecure
+        - traefik.http.routers.ntfy.tls.certresolver=letsencrypt
+        - traefik.http.services.ntfy.loadbalancer.server.port=80
+
+secrets:
+  ntfy_server_yml:
+    external: true
+
+volumes:
+  ntfy-data:
+
+networks:
+  proxy:
+    external: true                    # réseau overlay partagé avec Traefik

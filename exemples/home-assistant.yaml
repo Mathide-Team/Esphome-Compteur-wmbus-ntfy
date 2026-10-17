@@ -1,0 +1,40 @@
+# Home Assistant : bilan quotidien du voisin 1 envoyé via l'intégration ntfy.
+# Alternative au bilan envoyé par l'ESP (n'active pas les deux pour le même voisin).
+#
+# Prérequis : intégration ntfy configurée avec le sujet du voisin 1 → entité notify.<sujet>.
+# À adapter : l'entité notify et le nom du voisin (ici « dupont », secret nomcompteur1).
+- alias: "ntfy - bilan eau voisin 1"
+  id: ntfy_bilan_eau_voisin_1
+  mode: single
+  triggers:
+    - trigger: time
+      at: "21:00:00"
+  actions:
+    - action: ntfy.publish
+      target:
+        entity_id: notify.eau_a81d6c0f4e2b9a7c3d5f1e08
+      data:
+        title: "Eau : bilan du jour"
+        message: >-
+          Conso aujourd'hui : {{ states('sensor.compteur_eau_lora_dupont_conso_aujourd_hui') | float(0) | round(0) | int }} L
+          — index : {{ states('sensor.compteur_eau_lora_dupont_index') }} m³
+        priority: "2"
+        tags: ["droplet"]
+
+# Alerte : fuite confirmée sur TON compteur, envoyée par HA (en plus ou à la place de l'ESP)
+- alias: "ntfy - fuite confirmée"
+  id: ntfy_fuite_confirmee
+  mode: single
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.compteur_eau_lora_fuite_confirmee
+      to: "on"
+  actions:
+    - action: ntfy.publish
+      target:
+        entity_id: notify.eau_3f9c2a7d1b6e4f0a8c5d2e71
+      data:
+        title: "FUITE CONFIRMÉE"
+        message: "Consommation continue depuis {{ states('sensor.compteur_eau_lora_heures_de_conso_continue') }} h."
+        priority: "5"
+        tags: ["rotating_light", "droplet"]
