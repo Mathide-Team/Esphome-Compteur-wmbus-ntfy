@@ -90,7 +90,8 @@ script:
                   Content-Type: application/json
                   # Jeton seulement s'il est renseigné. Un en-tête vide vaut « anonyme » pour ntfy.
                   # Jamais de « ?auth=… » dans l'URL : les URL finissent dans les journaux.
-                  Authorization: !lambda 'return std::string("${ntfy_token}").empty() ? std::string() : std::string("Bearer ${ntfy_token}");'
+                  # Chaînes littérales (le lambda renvoie un const char*) : jeton connu à la compilation.
+                  Authorization: !lambda 'return sizeof("${ntfy_token}") > 1 ? "Bearer ${ntfy_token}" : "";'
                 json: |-
                   root["topic"] = p_topic;
                   root["title"] = p_titre;
