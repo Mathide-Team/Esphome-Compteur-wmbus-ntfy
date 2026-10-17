@@ -4,11 +4,12 @@
 Usage : ci_assembler.py <dossier_config_principale> <dossier_sortie> [fichier_config]
 
 - lit <fichier_config> (défaut : compteur-eau-lora.yaml) dans <dossier_config_principale> ;
-- ajoute les substitutions ntfy_topic_moi et ntfy_token (lues depuis secrets.yaml) ;
-- ajoute à « packages: » le paquet ntfy.yaml et une ligne ntfy-voisin.yaml par voisin déclaré
-  (même « i » que sa ligne voisins/voisin.yaml, sujet de test) ;
-- copie voisins/, ntfy.yaml et ntfy-voisin.yaml ;
-- écrit secrets.yaml = secrets.example.yaml + secrets.ntfy.example.yaml.
+- ajoute « ntfy: !include ntfy.yaml » au bloc « packages: » (rien d'autre : tout passe par
+  secrets.yaml, fusionné dans les substitutions par « <<: !include <fichier> ») ;
+- écrit le fichier de secrets fusionné, complété par secrets.ntfy.example.yaml et un sujet de
+  test ntfy_topic_vN pour chaque voisin compteurN présent ;
+- copie voisins/, options/, ntfy.yaml et ntfy-voisin.yaml ;
+- écrit secrets.yaml = secrets.example.yaml + secrets.ntfy.example.yaml (pour les !secret).
 
 Bibliothèque standard uniquement.
 """
@@ -20,36 +21,38 @@ import shutil
 import sys
 from pathlib import Path
 
-SUBSTITUTIONS = "  ntfy_topic_moi: !secret ntfy_topic_moi\n  ntfy_token: !secret ntfy_token\n"
-LIGNE_VOISIN = re.compile(r"^\s+voisin(\d+):.*voisins/voisin\.yaml", re.M)
+FUSION = re.compile(r"^  <<: !include (\S+)\s*$", re.M)
+VOISIN = re.compile(r"^compteur([1-9]|10):\s*\"?([^\"\s#]+)", re.M)
 
 
 def assembler(source: Path, sortie: Path, fichier: str = "compteur-eau-lora.yaml") -> None:
     """Écrit la configuration assemblée dans « sortie »."""
     sortie.mkdir(parents=True, exist_ok=True)
     config = (source / fichier).read_text(encoding="utf-8")
-    if "\nsubstitutions:\n" not in config:
-        raise SystemExit(f"{fichier} : bloc substitutions introuvable")
-    if "voisins/voisin.yaml" not in config and "\npackages: {}\n" not in config:
-        raise SystemExit(f"{fichier} : configuration sans voisins/voisin.yaml, trop ancienne pour ce paquet")
-    voisins = sorted({int(n) for n in LIGNE_VOISIN.findall(config)})
-    paquets = "  ntfy: !include ntfy.yaml\n" + "".join(
-        f'  ntfy_voisin{i}: !include {{ file: ntfy-voisin.yaml, vars: {{ i: {i}, nom: "Voisin {i}", topic: "eau-ci-v{i}" }} }}\n'
-        for i in voisins
-    )
-    config = config.replace("\nsubstitutions:\n", "\nsubstitutions:\n" + SUBSTITUTIONS, 1)
-    if "\npackages: {}\n" in config:
-        config = config.replace("\npackages: {}\n", "\npackages:\n" + paquets, 1)
-    else:
-        config = config.replace("\npackages:\n", "\npackages:\n" + paquets, 1)
+    fusion = FUSION.search(config)
+    if "voisins/voisins.yaml" not in config or not fusion or "\npackages:\n" not in config:
+        raise SystemExit(f"{fichier} : configuration sans voisins/voisins.yaml ni secrets fusionnés, trop ancienne pour ce paquet")
+    config = config.replace("\npackages:\n", "\npackages:\n  ntfy: !include ntfy.yaml\n", 1)
     (sortie / "compteur-eau-lora.yaml").write_text(config, encoding="utf-8")
-    shutil.copytree(source / "voisins", sortie / "voisins", dirs_exist_ok=True)
+
+    ntfy = Path("secrets.ntfy.example.yaml").read_text(encoding="utf-8")
+    ntfy = re.sub(r"^ntfy_topic_v\d+:.*\n", "", ntfy, flags=re.M)
+    chemin = source / fusion.group(1)
+    if not chemin.exists() and fusion.group(1) == "secrets.yaml":
+        chemin = source / "secrets.example.yaml"   # CI : dépôt principal sans secrets.yaml
+    fusionne = chemin.read_text(encoding="utf-8")
+    voisins = sorted({int(n) for n, num in VOISIN.findall(fusionne)})
+    sujets = "".join(f'ntfy_topic_v{i}: "eau-ci-v{i}"\n' for i in voisins)
+    (sortie / fusion.group(1)).write_text(fusionne + "\n" + ntfy + sujets, encoding="utf-8")
+
+    for dossier in ("voisins", "options"):
+        shutil.copytree(source / dossier, sortie / dossier, dirs_exist_ok=True)
     shutil.copy("ntfy.yaml", sortie / "ntfy.yaml")
     shutil.copy("ntfy-voisin.yaml", sortie / "ntfy-voisin.yaml")
-    secrets = (source / "secrets.example.yaml").read_text(encoding="utf-8")
-    secrets += "\n" + Path("secrets.ntfy.example.yaml").read_text(encoding="utf-8")
-    (sortie / "secrets.yaml").write_text(secrets, encoding="utf-8")
-    print(f"Configuration assemblée dans {sortie}/ : {len(voisins)} voisin(s)")
+    if fusion.group(1) != "secrets.yaml":
+        secrets = (source / "secrets.example.yaml").read_text(encoding="utf-8")
+        (sortie / "secrets.yaml").write_text(secrets + "\n" + ntfy, encoding="utf-8")
+    print(f"Configuration assemblée dans {sortie}/ : {len(voisins)} voisin(s) avec sujet ntfy")
 
 
 if __name__ == "__main__":

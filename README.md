@@ -50,48 +50,32 @@ Copie le contenu de [`secrets.ntfy.example.yaml`](secrets.ntfy.example.yaml) à 
 
 ### 3. Brancher le paquet dans `compteur-eau-lora.yaml`
 
-Il faut la configuration principale avec les voisins dynamiques (`voisins/voisin.yaml`). Ajoute ton sujet aux `substitutions` existantes :
-
-```yaml
-substitutions:
-  # … substitutions existantes …
-  ntfy_topic_moi: !secret ntfy_topic_moi
-  # facultatif :
-  # ntfy_server: "https://ntfy.exemple.fr"   # ton propre serveur (défaut : https://ntfy.sh)
-  # ntfy_heure_bilan: "20"                   # heure du bilan (défaut : 21)
-  # ntfy_token: !secret ntfy_token           # jeton d'accès (voir « Sécurité »)
-```
-
-Puis ajoute à `packages:` le paquet, et **une ligne par voisin** à prévenir, avec **le même `i`** que sa ligne `voisins/voisin.yaml` :
+Il faut la configuration principale qui déduit les voisins de `secrets.yaml` (`voisins/voisins.yaml`, et `<<: !include secrets.yaml` dans ses `substitutions`). Il suffit alors d'**une seule ligne** dans `packages:` :
 
 ```yaml
 packages:
-  voisin1: !include { file: voisins/voisin.yaml, vars: { i: 1, num: !secret compteur1, nom: !secret nomcompteur1 } }
-  # … autres voisins …
-
-  # a) directement depuis GitHub (mis à jour avec ce dépôt) :
+  voisins: !include voisins/voisins.yaml
   ntfy: github://Mathide-Team/Esphome-Compteur-wmbus-ntfy/ntfy.yaml@main
-  ntfy_voisin1:
-    url: https://github.com/Mathide-Team/Esphome-Compteur-wmbus-ntfy
-    ref: main
-    files:
-      - path: ntfy-voisin.yaml
-        vars: { i: 1, nom: !secret nomcompteur1, topic: !secret ntfy_topic_v1 }
-
-  # b) ou fichiers copiés à côté de compteur-eau-lora.yaml :
-  # ntfy: !include ntfy.yaml
-  # ntfy_voisin1: !include { file: ntfy-voisin.yaml, vars: { i: 1, nom: !secret nomcompteur1, topic: !secret ntfy_topic_v1 } }
+  # ou, fichiers copiés à côté de compteur-eau-lora.yaml :  ntfy: !include ntfy.yaml
 ```
 
-| Variable de `ntfy-voisin.yaml` | Rôle |
+Tout le reste se règle dans `secrets.yaml` (voir `secrets.ntfy.example.yaml`) :
+
+| Entrée de `secrets.yaml` | Rôle |
 |---|---|
-| `i` | Numéro du voisin, le même que dans `voisins/voisin.yaml` |
-| `nom` | Nom du voisin : titre de son bilan, et alerte « Compteur de … silencieux » qui t'est envoyée |
-| `topic` | **Son** sujet ntfy (`""` = rien n'est envoyé pour lui) |
+| `ntfy_topic_moi` | Ton sujet : alertes de ton compteur et ton bilan |
+| `ntfy_topic_vN` | Sujet du voisin N (le N de `compteurN`) : son bilan et les alertes de son compteur. Absent ou `""` = rien n'est envoyé pour lui |
+| `ntfy_token` | Facultatif : jeton d'accès (voir « Sécurité ») |
+| `ntfy_server`, `ntfy_heure_bilan` | Facultatifs : serveur (défaut `https://ntfy.sh`) et heure du bilan (défaut 21) |
 
-Un voisin sans ligne `ntfy_voisinN` ne reçoit rien. Avec ESPHome Builder, la variante a) ne demande aucun fichier à copier.
+Un voisin reçoit des notifications dès que **`compteurN` et `ntfy_topic_vN`** sont présents. Le paquet inclut lui-même `ntfy-voisin.yaml` pour chacun : rien d'autre à écrire.
 
-> **Mise à jour depuis la version à 4 voisins fixes** : retire `ntfy_topic_v1` … `ntfy_topic_v4` des `substitutions` (les sujets passent dans les `vars`), et ajoute une ligne `ntfy_voisinN` par voisin. Cette version doit être déployée **en même temps** que la configuration principale qui a une heure de secours SNTP : les deux sources SNTP sont fusionnées, et l'ancien `id: ntfy_time` n'existe plus.
+> **Mise à jour depuis une version précédente** :
+> - retire de `compteur-eau-lora.yaml` les substitutions `ntfy_topic_moi`, `ntfy_topic_v1`…, `ntfy_token` ;
+> - retire les lignes `ntfy_voisinN` de `packages:` ;
+> - garde les entrées de `secrets.yaml`, inchangées.
+>
+> Cette version doit être déployée **en même temps** que la configuration principale qui déduit les voisins de `secrets.yaml`.
 
 ### 4. Flasher et tester
 
@@ -165,8 +149,7 @@ Sur ntfy.sh sans compte, **le nom du sujet est le seul secret** : quiconque le c
 ### Le jeton de l'ESP
 
 1. Mets le jeton dans `secrets.yaml` : `ntfy_token: "tk_…"`.
-2. Ajoute-le aux substitutions de `compteur-eau-lora.yaml` : `ntfy_token: !secret ntfy_token`.
-3. L'en-tête `Authorization: Bearer tk_…` n'est envoyé **que si le jeton est renseigné**. Sans jeton (`""`, valeur par défaut), le paquet fonctionne comme avant sur ntfy.sh : un en-tête vide vaut « anonyme ».
+2. L'en-tête `Authorization: Bearer tk_…` n'est envoyé **que si le jeton est renseigné**. Sans jeton (`""`, valeur par défaut), le paquet fonctionne comme avant sur ntfy.sh : un en-tête vide vaut « anonyme ».
 
 Recommandations :
 - **Un jeton vaut le compte entier.** Avec un jeton, on peut tout faire sauf changer le mot de passe et supprimer le compte. Les jetons limités ne sont pas encore disponibles ([configuration ntfy](https://docs.ntfy.sh/config/)). Les droits se règlent donc **sur le compte**, pas sur le jeton.
@@ -204,7 +187,7 @@ Dans les journaux de l'ESP, `Refusé (HTTP 401/403)` veut dire jeton absent, ré
 
 ### Ton propre serveur
 
-`ntfy_server: "https://ntfy.exemple.fr"` dans les substitutions. Voir [`docs/serveur-ntfy-docker.md`](docs/serveur-ntfy-docker.md).
+`ntfy_server: "https://ntfy.exemple.fr"` dans `secrets.yaml`. Voir [`docs/serveur-ntfy-docker.md`](docs/serveur-ntfy-docker.md).
 
 ## Limites
 
@@ -214,7 +197,7 @@ Dans les journaux de l'ESP, `Refusé (HTTP 401/403)` veut dire jeton absent, ré
 - **Sans Internet**, rien n'est envoyé. Les messages ne sont pas gardés en attente : chaque envoi est tenté une seule fois.
 - **Certificat** : le certificat de ntfy.sh est vérifié (`verify_ssl: true`, avec le paquet de certificats racine d'ESP-IDF). Pour un serveur auto-signé, voir l'option `ca_certificate_path` du composant [`http_request`](https://esphome.io/components/http_request/).
 - **Heure** : le bilan suit l'heure Internet (SNTP, fuseau `Europe/Paris`), indépendante de Home Assistant.
-- **Nombre de voisins** : de 0 à 10, une ligne `ntfy_voisinN` chacun. Un sujet `""`, ou pas de ligne, = rien n'est envoyé pour ce voisin. Avec 10 voisins, une même alerte touche au plus 11 sujets, et la file d'envoi (`max_runs: 32`) les traite l'un après l'autre.
+- **Nombre de voisins** : de 0 à 10, déduits de `secrets.yaml`. Sans `ntfy_topic_vN` (ou avec `""`), rien n'est envoyé pour ce voisin. Avec 10 voisins, une même alerte touche au plus 11 sujets, et la file d'envoi (`max_runs: 32`) les traite l'un après l'autre.
 
 ## Vie privée
 
@@ -227,7 +210,7 @@ Dans les journaux de l'ESP, `Refusé (HTTP 401/403)` veut dire jeton absent, ré
 | Fichier | Rôle |
 |---|---|
 | `ntfy.yaml` | Le paquet ESPHome (client HTTPS, heure SNTP, scripts d'envoi, boutons, alertes de ton compteur) |
-| `ntfy-voisin.yaml` | Modèle d'un voisin : son bilan et les alertes de son compteur, sur son sujet (une ligne par voisin) |
+| `ntfy-voisin.yaml` | Modèle d'un voisin : son bilan et les alertes de son compteur, sur son sujet (inclus par `ntfy.yaml` pour chaque voisin qui a un sujet) |
 | `secrets.ntfy.example.yaml` | Lignes à ajouter à ton `secrets.yaml` |
 | [`docs/emetteurs.md`](docs/emetteurs.md) | Publier vers ntfy depuis Home Assistant, Jeedom, Domoticz, openHAB, Node-RED, un script |
 | [`docs/serveur-ntfy-docker.md`](docs/serveur-ntfy-docker.md) | Héberger son serveur ntfy : Docker Compose et Docker Swarm |
