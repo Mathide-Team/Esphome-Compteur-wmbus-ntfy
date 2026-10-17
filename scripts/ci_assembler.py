@@ -4,7 +4,7 @@
 Usage : ci_assembler.py <dossier_config_principale> <dossier_sortie>
 
 - copie compteur-eau-lora.yaml et ntfy.yaml dans <dossier_sortie> ;
-- ajoute les substitutions ntfy_topic_* (lues depuis secrets.yaml) ;
+- ajoute les substitutions ntfy_topic_* et ntfy_token (lues depuis secrets.yaml) ;
 - inclut le paquet (packages: ntfy: !include ntfy.yaml) ;
 - écrit secrets.yaml = secrets.example.yaml + secrets.ntfy.example.yaml.
 
@@ -19,7 +19,7 @@ from pathlib import Path
 
 SUBSTITUTIONS = "".join(
     f"  ntfy_topic_{n}: !secret ntfy_topic_{n}\n" for n in ("moi", "v1", "v2", "v3", "v4")
-)
+) + "  ntfy_token: !secret ntfy_token\n"
 
 
 def assembler(source: Path, sortie: Path) -> None:

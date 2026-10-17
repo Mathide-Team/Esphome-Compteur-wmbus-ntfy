@@ -12,12 +12,14 @@
 #  Substitutions attendues (à définir dans compteur-eau-lora.yaml, valeurs dans secrets.yaml) :
 #    ntfy_topic_moi, ntfy_topic_v1 … ntfy_topic_v4   ("" = pas de notification pour ce compteur)
 #  Substitutions facultatives (valeurs par défaut ci-dessous) :
-#    ntfy_server, ntfy_heure_bilan
+#    ntfy_server, ntfy_heure_bilan,
+#    ntfy_token (jeton d'accès tk_…, "" = aucun : en-tête Authorization envoyé seulement s'il est renseigné)
 # ══════════════════════════════════════════════════════════════════════════════
 
 substitutions:
   ntfy_server: "https://ntfy.sh"   # ou ton propre serveur ntfy
   ntfy_heure_bilan: "21"           # heure du bilan quotidien (0 à 23)
+  ntfy_token: ""                   # jeton d'accès (serveur privé, sujets réservés) ; "" = sans jeton
 
 # Client HTTPS de l'ESP. Sur ESP32, le paquet de certificats racine d'ESP-IDF est inclus :
 # le certificat de ntfy.sh est vérifié.
@@ -60,8 +62,9 @@ script:
                 url: "${ntfy_server}/"
                 request_headers:
                   Content-Type: application/json
-                  # Serveur ou sujet protégé : décommente la ligne et ajoute ntfy_token aux substitutions
-                  # Authorization: "Bearer ${ntfy_token}"
+                  # Jeton seulement s'il est renseigné. Un en-tête vide vaut « anonyme » pour ntfy.
+                  # Jamais de « ?auth=… » dans l'URL : les URL finissent dans les journaux.
+                  Authorization: !lambda 'return std::string("${ntfy_token}").empty() ? std::string() : std::string("Bearer ${ntfy_token}");'
                 json: |-
                   root["topic"] = p_topic;
                   root["title"] = p_titre;
@@ -80,6 +83,9 @@ script:
                     - lambda: |-
                         if (response->status_code == 200)
                           ESP_LOGI("ntfy", "Envoyé : %s", p_titre.c_str());
+                        else if (response->status_code == 401 || response->status_code == 403)
+                          ESP_LOGW("ntfy", "Refusé (HTTP %d) : jeton absent, révoqué ou sans droit d'écriture sur ce sujet : %s",
+                                   response->status_code, p_titre.c_str());
                         else
                           ESP_LOGW("ntfy", "Refusé par le serveur (HTTP %d) : %s",
                                    response->status_code, p_titre.c_str());
