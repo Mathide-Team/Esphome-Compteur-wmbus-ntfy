@@ -1,21 +1,18 @@
 # ══════════════════════════════════════════════════════════════════════════════
 #  ntfy-voisin.yaml : notifications ntfy d'UN voisin (paquet ESPHome avec variables)
 #
-#  À inclure une fois par voisin, avec le même « i » que son voisins/voisin.yaml :
-#
-#    packages:
-#      ntfy: github://Mathide-Team/Esphome-Compteur-wmbus-ntfy/ntfy.yaml@main
-#      ntfy_voisin1: !include { file: ntfy-voisin.yaml, vars: { i: 1, nom: !secret nomcompteur1, topic: !secret ntfy_topic_v1 } }
+#  Inclus automatiquement par ntfy.yaml pour chaque voisin N qui a compteurN et ntfy_topic_vN
+#  dans secrets.yaml. Rien à écrire dans compteur-eau-lora.yaml.
 #
 #  Variables :
-#    i      numéro du voisin (1 à 10), le même que dans voisins/voisin.yaml
+#    i      numéro du voisin (1 à 10), le N de compteurN
 #    nom    nom du voisin (titre du bilan, alerte « compteur muet » envoyée à toi)
 #    topic  SON sujet ntfy ("" = aucune notification pour ce voisin)
 #
 #  Envoie sur le sujet du voisin : son bilan quotidien et les alertes de SON compteur
 #  (fuite confirmée, fuite de nuit, débit anormal, conso journalière élevée, compteur muet).
 #  « Compteur muet » part aussi sur TON sujet (ntfy_topic_moi) : c'est toi qui gères le récepteur.
-#  Nécessite la configuration principale avec voisins/voisin.yaml (alertes des voisins).
+#  Nécessite la configuration principale avec voisins/voisins.yaml (alertes des voisins).
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Inscription du bilan quotidien de ce voisin (script ntfy_bilans de ntfy.yaml)
