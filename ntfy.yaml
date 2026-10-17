@@ -9,8 +9,10 @@
 #    Il le reçoit dans l'appli ntfy (Android, iOS, web) ou dans sa propre domotique
 #    (Home Assistant, Jeedom, Domoticz, openHAB, Node-RED… : tout ce qui sait lire un flux HTTP).
 #
-#  Substitutions attendues (à définir dans compteur-eau-lora.yaml, valeurs dans secrets.yaml) :
-#    ntfy_topic_moi, ntfy_topic_v1 … ntfy_topic_v4   ("" = pas de notification pour ce compteur)
+#  Substitution attendue (à définir dans compteur-eau-lora.yaml, valeur dans secrets.yaml) :
+#    ntfy_topic_moi   (ton sujet : alertes de ton compteur + ton bilan quotidien)
+#  Voisins : une ligne ntfy-voisin.yaml par voisin (0 à 10), voir README.
+#  Nécessite la configuration principale avec voisins/voisin.yaml (voisins dynamiques).
 #  Substitutions facultatives (valeurs par défaut ci-dessous) :
 #    ntfy_server, ntfy_heure_bilan,
 #    ntfy_token (jeton d'accès tk_…, "" = aucun : en-tête Authorization envoyé seulement s'il est renseigné)
@@ -27,10 +29,11 @@ http_request:
   verify_ssl: true
   timeout: 10s
 
-# Heure Internet, indépendante de Home Assistant (le bilan part même si HA est arrêté)
+# Heure Internet, indépendante de Home Assistant (le bilan part même si HA est arrêté).
+# Sans « id » : ESPHome la fusionne avec la source SNTP de la configuration principale. Les deux
+# règlent la même horloge, lue par id(ha_time).now().
 time:
   - platform: sntp
-    id: ntfy_time
     timezone: Europe/Paris
     on_time:
       - seconds: 0
@@ -39,11 +42,34 @@ time:
         then:
           - script.execute: ntfy_bilans
 
+globals:
+  - id: g_ntfy_bilans    # bilans des voisins, inscrits au démarrage par chaque ntfy-voisin.yaml
+    type: std::vector<std::function<void()>>
+  - id: g_ntfy_texte     # texte d'un bilan : index, 1er index du jour, jour → message
+    type: std::function<std::string(double, double, int)>
+
+esphome:
+  on_boot:
+    - priority: 600
+      then:
+        - lambda: |-
+            // même règle que le reste de la config : conso du jour = index − 1er index du jour
+            id(g_ntfy_texte) = [](double total, double debut, int jour) -> std::string {
+              auto now = id(ha_time).now();
+              char b[128];
+              if (total <= 0) return "Aucune trame reçue depuis le démarrage du récepteur.";
+              if (now.is_valid() && jour == now.day_of_year && debut > 0)
+                snprintf(b, sizeof(b), "Conso aujourd'hui : %.0f L\nIndex : %.3f m³", (total - debut) * 1000.0, total);
+              else
+                snprintf(b, sizeof(b), "Aucune trame aujourd'hui.\nDernier index : %.3f m³", total);
+              return b;
+            };
+
 script:
   # ── Envoi d'un message ntfy (publication JSON sur la racine du serveur) ──
   - id: ntfy_envoi
     mode: queued        # les messages partent l'un après l'autre
-    max_runs: 12
+    max_runs: 32        # toi + 10 voisins, alertes comprises
     parameters:
       p_topic: string     # sujet ntfy ("" = rien n'est envoyé)
       p_titre: string
@@ -96,28 +122,14 @@ script:
                         tag: ntfy
                         format: "Échec de l'envoi (réseau ou serveur injoignable)"
 
-  # ── Bilan quotidien : toi + chaque voisin, chacun sur son sujet ──
+  # ── Bilan quotidien : toi + chaque voisin (ntfy-voisin.yaml), chacun sur son sujet ──
   - id: ntfy_bilans
     mode: single
     then:
       - lambda: |-
-          auto now = id(ntfy_time).now();
-          if (!now.is_valid()) now = id(ha_time).now();
-          // même règle que le reste de la config : conso du jour = index − 1er index du jour
-          auto texte = [&](double total, double debut, int jour) -> std::string {
-            char b[128];
-            if (total <= 0) return "Aucune trame reçue depuis le démarrage du récepteur.";
-            if (now.is_valid() && jour == now.day_of_year && debut > 0)
-              snprintf(b, sizeof(b), "Conso aujourd'hui : %.0f L\nIndex : %.3f m³", (total - debut) * 1000.0, total);
-            else
-              snprintf(b, sizeof(b), "Aucune trame aujourd'hui.\nDernier index : %.3f m³", total);
-            return b;
-          };
-          id(ntfy_envoi).execute("${ntfy_topic_moi}", "Eau : bilan du jour", texte(id(g_total), id(g_day_start), id(g_day)), 2, "droplet");
-          id(ntfy_envoi).execute("${ntfy_topic_v1}", "Eau : bilan du jour (${nom_v1})", texte(id(v1_total), id(v1_day_start), id(v1_day)), 2, "droplet");
-          id(ntfy_envoi).execute("${ntfy_topic_v2}", "Eau : bilan du jour (${nom_v2})", texte(id(v2_total), id(v2_day_start), id(v2_day)), 2, "droplet");
-          id(ntfy_envoi).execute("${ntfy_topic_v3}", "Eau : bilan du jour (${nom_v3})", texte(id(v3_total), id(v3_day_start), id(v3_day)), 2, "droplet");
-          id(ntfy_envoi).execute("${ntfy_topic_v4}", "Eau : bilan du jour (${nom_v4})", texte(id(v4_total), id(v4_day_start), id(v4_day)), 2, "droplet");
+          id(ntfy_envoi).execute("${ntfy_topic_moi}", "Eau : bilan du jour",
+                                 id(g_ntfy_texte)(id(g_total), id(g_day_start), id(g_day)), 2, "droplet");
+          for (auto &bilan : id(g_ntfy_bilans)) bilan();
 
 switch:
   - platform: template
@@ -195,6 +207,6 @@ binary_sensor:
     internal: true
     lambda: 'return id(bs_silencieux).state;'
     on_press:
-      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Compteur silencieux", p_message: "Aucune trame de ton compteur depuis plus de 6 h.", p_priorite: 3, p_tags: "mute"}
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Compteur silencieux", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "Aucune trame de ton compteur depuis plus de %.0f h.", id(seuil_silence_h).state); return std::string(b);', p_priorite: 3, p_tags: "mute"}
     on_release:
       - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Compteur à nouveau reçu", p_message: "Les trames de ton compteur arrivent de nouveau.", p_priorite: 2, p_tags: "white_check_mark"}
