@@ -4,7 +4,7 @@ Paquet ESPHome qui ajoute des **notifications push [ntfy](https://ntfy.sh)** au 
 
 Pourquoi faire :
 - **Tes alertes arrivent même si Home Assistant est arrêté** : fuite, débit anormal, conso pendant une absence, compteur muet.
-- **Chaque voisin reçoit le bilan de son compteur sans avoir Home Assistant** : dans l'appli ntfy (Android, iOS, navigateur), ou dans sa propre domotique (Home Assistant, Jeedom, Domoticz, openHAB, Node-RED…), du moment qu'elle sait lire un flux HTTP.
+- **Chaque voisin reçoit le bilan et les alertes de son compteur sans avoir Home Assistant** : dans l'appli ntfy (Android, iOS, navigateur), ou dans sa propre domotique (Home Assistant, Jeedom, Domoticz, openHAB, Node-RED…), du moment qu'elle sait lire un flux HTTP.
 - **Chacun ne voit que son compteur** : un sujet ntfy différent par personne.
 
 ## Ce qui est envoyé
@@ -16,11 +16,15 @@ Pourquoi faire :
 | Toi | **Consommation pendant ton absence** | Mode absence actif et au moins 1 L sur une heure | 5 (urgent) |
 | Toi | **Fuite suspectée (nuit)** | À 5 h, au moins 3 h de conso d'affilée | 4 (high) |
 | Toi | **Conso journalière élevée** | Seuil journalier dépassé | 4 (high) |
-| Toi | **Compteur silencieux** | Aucune trame depuis plus de 6 h | 3 (default) |
+| Toi | **Compteur silencieux** | Aucune trame depuis plus de `Compteur silencieux après` heures (6 par défaut) | 3 (default) |
 | Toi | Fin d'alerte (fuite, fuite de nuit, débit, compteur de nouveau reçu) | Retour à la normale | 2 (low) |
+| Chaque voisin | **Fuite confirmée**, **débit anormal** | Mêmes règles que pour toi, sur **son** compteur | 5 (urgent) |
+| Chaque voisin | **Fuite suspectée (nuit)**, **conso journalière élevée** | Idem | 4 (high) |
+| Chaque voisin **+ toi** | **Compteur silencieux** (toi : « Compteur de Dupont silencieux ») | Aucune trame de son compteur depuis le délai réglé | 3 (default) |
+| Chaque voisin (+ toi pour le compteur silencieux) | Fin d'alerte | Retour à la normale | 2 (low) |
 | Toi + chaque voisin | **Bilan du jour** : conso du jour (L) et index (m³) de **son** compteur | Chaque jour à `ntfy_heure_bilan` h (21 h par défaut) | 2 (low) |
 
-Les seuils sont ceux de la configuration principale, réglables depuis HA ou depuis la page web de l'ESP. Les voisins n'ont pas d'alertes de fuite : la configuration principale ne calcule les alertes que pour ton compteur.
+Les seuils sont ceux de la configuration principale (les mêmes pour ton compteur et pour les voisins), réglables depuis HA ou depuis la page web de l'ESP. Chacun ne reçoit que les alertes de **son** compteur. Seule exception : un compteur voisin silencieux te prévient aussi, car c'est toi qui t'occupes du récepteur. Pas de mode absence pour les voisins.
 
 Le paquet ajoute aussi :
 
@@ -46,34 +50,32 @@ Copie le contenu de [`secrets.ntfy.example.yaml`](secrets.ntfy.example.yaml) à 
 
 ### 3. Brancher le paquet dans `compteur-eau-lora.yaml`
 
-Ajoute les sujets aux `substitutions` existantes :
+Il faut la configuration principale qui déduit les voisins de `secrets.yaml` (`voisins/voisins.yaml`, et `<<: !include secrets.yaml` dans ses `substitutions`). Il suffit alors d'**une seule ligne** dans `packages:` :
 
 ```yaml
-substitutions:
-  # … substitutions existantes …
-  ntfy_topic_moi: !secret ntfy_topic_moi
-  ntfy_topic_v1: !secret ntfy_topic_v1
-  ntfy_topic_v2: !secret ntfy_topic_v2
-  ntfy_topic_v3: !secret ntfy_topic_v3
-  ntfy_topic_v4: !secret ntfy_topic_v4
-  # facultatif :
-  # ntfy_server: "https://ntfy.exemple.fr"   # ton propre serveur (défaut : https://ntfy.sh)
-  # ntfy_heure_bilan: "20"                   # heure du bilan (défaut : 21)
-```
-
-Puis ajoute le paquet, au même niveau que `esphome:`. Deux possibilités :
-
-```yaml
-# a) directement depuis GitHub (mis à jour avec ce dépôt) :
 packages:
+  voisins: !include voisins/voisins.yaml
   ntfy: github://Mathide-Team/Esphome-Compteur-wmbus-ntfy/ntfy.yaml@main
-
-# b) ou fichier copié à côté de compteur-eau-lora.yaml :
-packages:
-  ntfy: !include ntfy.yaml
+  # ou, fichiers copiés à côté de compteur-eau-lora.yaml :  ntfy: !include ntfy.yaml
 ```
 
-La configuration principale n'a pas besoin d'être modifiée ailleurs. Le paquet lit ses alertes (`bs_fuite_confirmee`…) et ses variables (`g_total`, `v1_total`…) sans y toucher.
+Tout le reste se règle dans `secrets.yaml` (voir `secrets.ntfy.example.yaml`) :
+
+| Entrée de `secrets.yaml` | Rôle |
+|---|---|
+| `ntfy_topic_moi` | Ton sujet : alertes de ton compteur et ton bilan |
+| `ntfy_topic_vN` | Sujet du voisin N (le N de `compteurN`) : son bilan et les alertes de son compteur. Absent ou `""` = rien n'est envoyé pour lui |
+| `ntfy_token` | Facultatif : jeton d'accès (voir « Sécurité ») |
+| `ntfy_server`, `ntfy_heure_bilan` | Facultatifs : serveur (défaut `https://ntfy.sh`) et heure du bilan (défaut 21) |
+
+Un voisin reçoit des notifications dès que **`compteurN` et `ntfy_topic_vN`** sont présents. Le paquet inclut lui-même `ntfy-voisin.yaml` pour chacun : rien d'autre à écrire.
+
+> **Mise à jour depuis une version précédente** :
+> - retire de `compteur-eau-lora.yaml` les substitutions `ntfy_topic_moi`, `ntfy_topic_v1`…, `ntfy_token` ;
+> - retire les lignes `ntfy_voisinN` de `packages:` ;
+> - garde les entrées de `secrets.yaml`, inchangées.
+>
+> Cette version doit être déployée **en même temps** que la configuration principale qui déduit les voisins de `secrets.yaml`.
 
 ### 4. Flasher et tester
 
@@ -147,8 +149,7 @@ Sur ntfy.sh sans compte, **le nom du sujet est le seul secret** : quiconque le c
 ### Le jeton de l'ESP
 
 1. Mets le jeton dans `secrets.yaml` : `ntfy_token: "tk_…"`.
-2. Ajoute-le aux substitutions de `compteur-eau-lora.yaml` : `ntfy_token: !secret ntfy_token`.
-3. L'en-tête `Authorization: Bearer tk_…` n'est envoyé **que si le jeton est renseigné**. Sans jeton (`""`, valeur par défaut), le paquet fonctionne comme avant sur ntfy.sh : un en-tête vide vaut « anonyme ».
+2. L'en-tête `Authorization: Bearer tk_…` n'est envoyé **que si le jeton est renseigné**. Sans jeton (`""`, valeur par défaut), le paquet fonctionne comme avant sur ntfy.sh : un en-tête vide vaut « anonyme ».
 
 Recommandations :
 - **Un jeton vaut le compte entier.** Avec un jeton, on peut tout faire sauf changer le mot de passe et supprimer le compte. Les jetons limités ne sont pas encore disponibles ([configuration ntfy](https://docs.ntfy.sh/config/)). Les droits se règlent donc **sur le compte**, pas sur le jeton.
@@ -186,17 +187,17 @@ Dans les journaux de l'ESP, `Refusé (HTTP 401/403)` veut dire jeton absent, ré
 
 ### Ton propre serveur
 
-`ntfy_server: "https://ntfy.exemple.fr"` dans les substitutions. Voir [`docs/serveur-ntfy-docker.md`](docs/serveur-ntfy-docker.md).
+`ntfy_server: "https://ntfy.exemple.fr"` dans `secrets.yaml`. Voir [`docs/serveur-ntfy-docker.md`](docs/serveur-ntfy-docker.md).
 
 ## Limites
 
-- **Limites de ntfy.sh** : par visiteur (ici l'adresse IP de ta box), 60 requêtes d'un coup, puis 1 requête toutes les 5 s, et **250 messages par jour** au maximum. Le paquet envoie au plus 5 bilans par jour plus les alertes : on reste très loin de la limite.
+- **Limites de ntfy.sh** : par visiteur (ici l'adresse IP de ta box), 60 requêtes d'un coup, puis 1 requête toutes les 5 s, et **250 messages par jour** au maximum. Le paquet envoie au plus 11 bilans par jour (toi + 10 voisins) plus les alertes : on reste très loin de la limite.
 - **Une seule adresse IP** : tous les messages partent de ta box. Les voisins partagent donc ta limite ntfy.sh, ce qui ne pose pas de problème vu le faible volume.
 - **Redémarrage** : une alerte encore active au redémarrage de l'ESP (par exemple une fuite confirmée, mémorisée en flash) est renvoyée une fois.
 - **Sans Internet**, rien n'est envoyé. Les messages ne sont pas gardés en attente : chaque envoi est tenté une seule fois.
 - **Certificat** : le certificat de ntfy.sh est vérifié (`verify_ssl: true`, avec le paquet de certificats racine d'ESP-IDF). Pour un serveur auto-signé, voir l'option `ca_certificate_path` du composant [`http_request`](https://esphome.io/components/http_request/).
 - **Heure** : le bilan suit l'heure Internet (SNTP, fuseau `Europe/Paris`), indépendante de Home Assistant.
-- **Moins de 4 voisins** : laisse leur sujet à `""`. Si tu as supprimé un voisin de la configuration principale, supprime aussi sa ligne dans le script `ntfy_bilans`.
+- **Nombre de voisins** : de 0 à 10, déduits de `secrets.yaml`. Sans `ntfy_topic_vN` (ou avec `""`), rien n'est envoyé pour ce voisin. Avec 10 voisins, une même alerte touche au plus 11 sujets, et la file d'envoi (`max_runs: 32`) les traite l'un après l'autre.
 
 ## Vie privée
 
@@ -208,7 +209,8 @@ Dans les journaux de l'ESP, `Refusé (HTTP 401/403)` veut dire jeton absent, ré
 
 | Fichier | Rôle |
 |---|---|
-| `ntfy.yaml` | Le paquet ESPHome (client HTTPS, heure SNTP, scripts d'envoi, boutons, alertes) |
+| `ntfy.yaml` | Le paquet ESPHome (client HTTPS, heure SNTP, scripts d'envoi, boutons, alertes de ton compteur) |
+| `ntfy-voisin.yaml` | Modèle d'un voisin : son bilan et les alertes de son compteur, sur son sujet (inclus par `ntfy.yaml` pour chaque voisin qui a un sujet) |
 | `secrets.ntfy.example.yaml` | Lignes à ajouter à ton `secrets.yaml` |
 | [`docs/emetteurs.md`](docs/emetteurs.md) | Publier vers ntfy depuis Home Assistant, Jeedom, Domoticz, openHAB, Node-RED, un script |
 | [`docs/serveur-ntfy-docker.md`](docs/serveur-ntfy-docker.md) | Héberger son serveur ntfy : Docker Compose et Docker Swarm |

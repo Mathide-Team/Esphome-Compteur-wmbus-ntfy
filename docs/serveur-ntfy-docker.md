@@ -57,7 +57,7 @@ docker exec ntfy ntfy access voisin1 eau-a81d6c0f4e2b9a7c3d5f1e08 read-only
 docker exec ntfy ntfy access                          # vérifier la liste des droits
 ```
 
-Côté ESP (voir le [README](../README.md#sécurité)) : `ntfy_server: "https://ntfy.exemple.fr"` et `ntfy_token: !secret ntfy_token` dans les substitutions, avec le jeton dans `secrets.yaml`. L'en-tête `Authorization` est ajouté automatiquement. Côté voisin : dans l'appli ntfy, ajoute le serveur `https://ntfy.exemple.fr` avec ses identifiants `voisin1`, puis abonne-toi à son sujet.
+Côté ESP (voir le [README](../README.md#sécurité)) : `ntfy_server: "https://ntfy.exemple.fr"` et `ntfy_token: "tk_…"` dans `secrets.yaml`. L'en-tête `Authorization` est ajouté automatiquement. Côté voisin : dans l'appli ntfy, ajoute le serveur `https://ntfy.exemple.fr` avec ses identifiants `voisin1`, puis abonne-toi à son sujet.
 
 ### Sauvegarde et mise à jour
 

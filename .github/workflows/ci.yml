@@ -34,11 +34,12 @@ jobs:
       - name: Script de vérification des protections (syntaxe)
         run: uv run --no-project python -m py_compile scripts/check_branch_protection.py scripts/ci_assembler.py
 
-      - name: Configuration principale (Esphome-Compteur-wmbus, branche main)
+      - name: Configuration principale (Esphome-Compteur-wmbus)
         uses: actions/checkout@v7
         with:
           repository: Mathide-Team/Esphome-Compteur-wmbus
-          ref: main
+          # Branche de la configuration principale : variable de dépôt COMPTEUR_REF (défaut : main)
+          ref: ${{ vars.COMPTEUR_REF || 'main' }}
           path: compteur
 
       - name: Assemblage config principale + paquet ntfy
@@ -47,6 +48,14 @@ jobs:
       - name: Validation ESPHome (esphome config)
         # Valide le paquet ntfy dans la configuration réelle du compteur, sans compiler.
         run: uvx --from "esphome==${ESPHOME_VERSION}" esphome config ci/compteur-eau-lora.yaml > /dev/null
+
+      - name: Validation ESPHome avec 0 et 10 voisins
+        run: |
+          for n in 0 10; do
+            (cd compteur && uv run --no-project python scripts/ci_voisins.py "$n")
+            uv run --no-project python scripts/ci_assembler.py compteur "ci-$n" "ci-voisins-$n.yaml"
+            uvx --from "esphome==${ESPHOME_VERSION}" esphome config "ci-$n/compteur-eau-lora.yaml" > /dev/null
+          done
 
   compilation:
     name: Compilation (esphome compile)
@@ -70,7 +79,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: Mathide-Team/Esphome-Compteur-wmbus
-          ref: main
+          ref: ${{ vars.COMPTEUR_REF || 'main' }}
           path: compteur
 
       - name: Assemblage config principale + paquet ntfy
