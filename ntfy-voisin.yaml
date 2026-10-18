@@ -1,0 +1,76 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  ntfy-voisin.yaml : notifications ntfy d'UN voisin (paquet ESPHome avec variables)
+#
+#  Inclus automatiquement par ntfy.yaml pour chaque voisin N qui a compteurN et ntfy_topic_vN
+#  dans secrets.yaml. Rien à écrire dans compteur-eau-lora.yaml.
+#
+#  Variables :
+#    i      numéro du voisin (1 à 10), le N de compteurN
+#    nom    nom du voisin (titre du bilan, alerte « compteur muet » envoyée à toi)
+#    topic  SON sujet ntfy ("" = aucune notification pour ce voisin)
+#
+#  Envoie sur le sujet du voisin : son bilan quotidien et les alertes de SON compteur
+#  (fuite confirmée, fuite de nuit, débit anormal, conso journalière élevée, compteur muet).
+#  « Compteur muet » part aussi sur TON sujet (ntfy_topic_moi) : c'est toi qui gères le récepteur.
+#  Nécessite la configuration principale avec voisins/voisins.yaml (alertes des voisins).
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Inscription du bilan quotidien de ce voisin (script ntfy_bilans de ntfy.yaml)
+esphome:
+  on_boot:
+    - priority: 590
+      then:
+        - lambda: |-
+            id(g_ntfy_bilans).push_back([]() {
+              id(ntfy_envoi).execute("${topic}", "Eau : bilan du jour (${nom})",
+                                     id(g_ntfy_texte)(id(v${i}_total), id(v${i}_day_start), id(v${i}_day)), 2, "droplet");
+            });
+
+# Copies internes des alertes du voisin (voisins/voisin.yaml). Après un redémarrage, une alerte
+# encore active est renvoyée une fois.
+binary_sensor:
+  - platform: template
+    id: ntfy_v${i}_fuite_confirmee
+    internal: true
+    lambda: 'return id(v${i}_fuite_confirmee).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "FUITE CONFIRMÉE", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "Consommation continue depuis %d h.", id(v${i}_leak_hours)); return std::string(b);', p_priorite: 5, p_tags: "rotating_light,droplet"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Fin d'alerte : fuite confirmée", p_message: "La consommation s'est arrêtée.", p_priorite: 2, p_tags: "white_check_mark"}
+
+  - platform: template
+    id: ntfy_v${i}_fuite_nuit
+    internal: true
+    lambda: 'return id(v${i}_fuite_nuit).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Fuite suspectée (nuit)", p_message: "Consommation à chaque heure de la nuit jusqu'à 5 h.", p_priorite: 4, p_tags: "crescent_moon,droplet"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Fin d'alerte : fuite de nuit", p_message: "Une heure sans consommation a été mesurée.", p_priorite: 2, p_tags: "white_check_mark"}
+
+  - platform: template
+    id: ntfy_v${i}_debit_anormal
+    internal: true
+    lambda: 'return id(v${i}_debit_anormal).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Débit anormal", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "Débit estimé : %.0f L/h depuis plus de 10 min.", id(v${i}_debit).state); return std::string(b);', p_priorite: 5, p_tags: "warning,droplet"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Fin d'alerte : débit anormal", p_message: "Le débit est revenu sous le seuil.", p_priorite: 2, p_tags: "white_check_mark"}
+
+  - platform: template
+    id: ntfy_v${i}_conso_jour
+    internal: true
+    lambda: 'return id(v${i}_conso_anormale).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Conso journalière élevée", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "%.0f L consommés aujourd''hui (seuil %.0f L).", id(v${i}_conso_jour).state, id(seuil_jour_l).state); return std::string(b);', p_priorite: 4, p_tags: "calendar,droplet"}
+
+  # Compteur muet (issue #4) : au voisin ET à toi (problème de réception à régler côté récepteur)
+  - platform: template
+    id: ntfy_v${i}_silencieux
+    internal: true
+    lambda: 'return id(v${i}_silencieux).state;'
+    on_press:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Compteur silencieux", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "Aucune trame de ton compteur depuis plus de %.0f h.", id(seuil_silence_h).state); return std::string(b);', p_priorite: 3, p_tags: "mute"}
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Compteur de ${nom} silencieux", p_message: !lambda 'char b[96]; snprintf(b, sizeof(b), "Aucune trame du compteur de ${nom} depuis plus de %.0f h.", id(seuil_silence_h).state); return std::string(b);', p_priorite: 3, p_tags: "mute"}
+    on_release:
+      - script.execute: {id: ntfy_envoi, p_topic: "${topic}", p_titre: "Compteur à nouveau reçu", p_message: "Les trames de ton compteur arrivent de nouveau.", p_priorite: 2, p_tags: "white_check_mark"}
+      - script.execute: {id: ntfy_envoi, p_topic: "${ntfy_topic_moi}", p_titre: "Compteur de ${nom} à nouveau reçu", p_message: "Ses trames arrivent de nouveau.", p_priorite: 2, p_tags: "white_check_mark"}
