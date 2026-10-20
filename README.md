@@ -1,6 +1,6 @@
 # Notifications ntfy pour le compteur d'eau wM-Bus (sans Home Assistant)
 
-Paquet ESPHome qui ajoute des **notifications push [ntfy](https://ntfy.sh)** au récepteur [Esphome-Compteur-wmbus](https://github.com/Mathide-Team/Esphome-Compteur-wmbus). Les messages sont envoyés **directement par l'ESP32** vers ntfy, en HTTPS. Ils ne passent **ni par Home Assistant, ni par aucune autre domotique**.
+Paquet ESPHome qui ajoute des **notifications push [ntfy](https://ntfy.sh)** au récepteur [Esphome-Compteur-wmbus](https://github.com/Mathilde-Team/Esphome-Compteur-wmbus). Les messages sont envoyés **directement par l'ESP32** vers ntfy, en HTTPS. Ils ne passent **ni par Home Assistant, ni par aucune autre domotique**.
 
 Pourquoi faire :
 - **Tes alertes arrivent même si Home Assistant est arrêté** : fuite, débit anormal, conso pendant une absence, compteur muet.
@@ -55,7 +55,7 @@ Il faut la configuration principale qui déduit les voisins de `secrets.yaml` (`
 ```yaml
 packages:
   voisins: !include voisins/voisins.yaml
-  ntfy: github://Mathide-Team/Esphome-Compteur-wmbus-ntfy/ntfy.yaml@main
+  ntfy: github://Mathilde-Team/Esphome-Compteur-wmbus-ntfy/ntfy.yaml@main
   # ou, fichiers copiés à côté de compteur-eau-lora.yaml :  ntfy: !include ntfy.yaml
 ```
 
@@ -222,7 +222,7 @@ Validé avec `esphome config` et compilé (`esphome compile`, ESPHome 2026.9.1) 
 
 ## Contribuer
 
-Le dépôt suit le socle qualité de Mathide-Team :
+Le dépôt suit le socle qualité de Mathilde-Team :
 
 - **`main`** = branche de livraison, **`dev`** = branche d'intégration. On ne pousse jamais directement sur l'une ou l'autre.
 - Une branche par sujet, créée depuis `dev` (`feat/<n°>-…`, `fix/<n°>-…`, `docs/…`, `ci/…`), puis une **PR vers `dev`**.

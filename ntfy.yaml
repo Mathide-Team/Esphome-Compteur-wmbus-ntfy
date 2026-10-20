@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 #  ntfy.yaml : notifications ntfy envoyées DIRECTEMENT par l'ESP (sans Home Assistant)
 #  Paquet ESPHome à ajouter à compteur-eau-lora.yaml
-#  (https://github.com/Mathide-Team/Esphome-Compteur-wmbus)
+#  (https://github.com/Mathilde-Team/Esphome-Compteur-wmbus)
 #
 #  - Toi : une notification à chaque alerte (fuite, débit, conso, absence, compteur muet),
 #    une à la fin de l'alerte, et un bilan quotidien.

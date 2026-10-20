@@ -37,7 +37,7 @@ jobs:
       - name: Configuration principale (Esphome-Compteur-wmbus)
         uses: actions/checkout@v7
         with:
-          repository: Mathide-Team/Esphome-Compteur-wmbus
+          repository: Mathilde-Team/Esphome-Compteur-wmbus
           # Branche de la configuration principale : variable de dépôt COMPTEUR_REF (défaut : main)
           ref: ${{ vars.COMPTEUR_REF || 'main' }}
           path: compteur
@@ -78,7 +78,7 @@ jobs:
       - name: Configuration principale (Esphome-Compteur-wmbus, branche main)
         uses: actions/checkout@v7
         with:
-          repository: Mathide-Team/Esphome-Compteur-wmbus
+          repository: Mathilde-Team/Esphome-Compteur-wmbus
           ref: ${{ vars.COMPTEUR_REF || 'main' }}
           path: compteur
 
