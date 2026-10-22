@@ -7,3 +7,4 @@ docker/.env
 docker/server.yml
 __pycache__/
 *.pyc
+.coverage
