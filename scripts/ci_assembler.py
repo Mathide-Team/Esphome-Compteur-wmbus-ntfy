@@ -11,7 +11,7 @@ Usage : ci_assembler.py <dossier_config_principale> <dossier_sortie> [fichier_co
 - copie voisins/, options/, ntfy.yaml et ntfy-voisin.yaml ;
 - écrit secrets.yaml = secrets.example.yaml + secrets.ntfy.example.yaml (pour les !secret).
 
-Bibliothèque standard uniquement.
+Bibliothèque standard pour les fichiers ; loguru pour la journalisation (SOCLE §8).
 """
 
 from __future__ import annotations
@@ -21,16 +21,20 @@ import shutil
 import sys
 from pathlib import Path
 
+from loguru import logger
+
 FUSION = re.compile(r"^  <<: !include (\S+)\s*$", re.M)
 VOISIN = re.compile(r"^compteur([1-9]|10):\s*\"?([^\"\s#]+)", re.M)
 
 
 def assembler(source: Path, sortie: Path, fichier: str = "compteur-eau-lora.yaml") -> None:
     """Écrit la configuration assemblée dans « sortie »."""
+    logger.debug("assembler() appelée | source={} sortie={} fichier={}", source, sortie, fichier)
     sortie.mkdir(parents=True, exist_ok=True)
     config = (source / fichier).read_text(encoding="utf-8")
     fusion = FUSION.search(config)
     if "voisins/voisins.yaml" not in config or not fusion or "\npackages:\n" not in config:
+        logger.debug("configuration trop ancienne (ni voisins/voisins.yaml ni secrets fusionnés) : {}", fichier)
         raise SystemExit(f"{fichier} : configuration sans voisins/voisins.yaml ni secrets fusionnés, trop ancienne pour ce paquet")
     config = config.replace("\npackages:\n", "\npackages:\n  ntfy: !include ntfy.yaml\n", 1)
     (sortie / "compteur-eau-lora.yaml").write_text(config, encoding="utf-8")
@@ -53,6 +57,7 @@ def assembler(source: Path, sortie: Path, fichier: str = "compteur-eau-lora.yaml
         secrets = (source / "secrets.example.yaml").read_text(encoding="utf-8")
         (sortie / "secrets.yaml").write_text(secrets + "\n" + ntfy, encoding="utf-8")
     print(f"Configuration assemblée dans {sortie}/ : {len(voisins)} voisin(s) avec sujet ntfy")
+    logger.debug("assembler() retourne | {} voisin(s)", len(voisins))
 
 
 if __name__ == "__main__":

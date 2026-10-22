@@ -34,6 +34,11 @@ jobs:
       - name: Script de vérification des protections (syntaxe)
         run: uv run --no-project python -m py_compile scripts/check_branch_protection.py scripts/ci_assembler.py
 
+      - name: Tests et couverture (journalisation SOCLE §8, scripts ; seuil lu dans pyproject.toml)
+        # Seuil (95 %) et branches déclarés une seule fois dans pyproject.toml
+        # ([tool.coverage.*], issue #13) : la commande ne recopie aucune valeur.
+        run: uv run --group test --group scripts pytest --cov --cov-report=term-missing
+
       - name: Configuration principale (Esphome-Compteur-wmbus)
         uses: actions/checkout@v7
         with:
@@ -43,7 +48,7 @@ jobs:
           path: compteur
 
       - name: Assemblage config principale + paquet ntfy
-        run: uv run --no-project python scripts/ci_assembler.py compteur ci
+        run: uv run --group scripts python scripts/ci_assembler.py compteur ci
 
       - name: Validation ESPHome (esphome config)
         # Valide le paquet ntfy dans la configuration réelle du compteur, sans compiler.
@@ -53,7 +58,7 @@ jobs:
         run: |
           for n in 0 10; do
             (cd compteur && uv run --no-project python scripts/ci_voisins.py "$n")
-            uv run --no-project python scripts/ci_assembler.py compteur "ci-$n" "ci-voisins-$n.yaml"
+            uv run --group scripts python scripts/ci_assembler.py compteur "ci-$n" "ci-voisins-$n.yaml"
             uvx --from "esphome==${ESPHOME_VERSION}" esphome config "ci-$n/compteur-eau-lora.yaml" > /dev/null
           done
 
@@ -83,7 +88,7 @@ jobs:
           path: compteur
 
       - name: Assemblage config principale + paquet ntfy
-        run: uv run --no-project python scripts/ci_assembler.py compteur ci
+        run: uv run --group scripts python scripts/ci_assembler.py compteur ci
 
       - name: Compilation du firmware
         run: uvx --from "esphome==${ESPHOME_VERSION}" esphome compile ci/compteur-eau-lora.yaml
